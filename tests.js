@@ -1,10 +1,11 @@
 const {get_test_cases} = require("./test_cases_1");
 const {assignFactions, assignWithGraph, assignWithEqualPicks} = require("./factions");
 
-const stopOnFailure = true;
+const stopOnFailure = false;
 let failureEncountered = false;
 
-const testsToRun = [];
+const testsToRun = [8];
+const testsToSkip = [];
 
 const test_cases = get_test_cases().filter(t => !testsToRun.length || testsToRun.indexOf(t.testNumber) >= 0);
 
@@ -15,7 +16,7 @@ test_cases.forEach((testCase) => {
     return;
   }
   const { notes, testData, testNumber } = testCase;
-  if (testsToRun.length && testsToRun.indexOf(testNumber) === -1) {
+  if ((testsToRun.length && testsToRun.indexOf(testNumber) === -1) || testsToSkip.indexOf(testNumber) >= 0) {
     return;
   }
   console.info(`Running test case #${testNumber}`);

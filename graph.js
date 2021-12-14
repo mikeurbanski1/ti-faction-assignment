@@ -82,7 +82,7 @@ class Graph {
 
   removeAllEdges(faction, deleteEmptyVertex = false) {
     const edges = this.factionsToEdges[faction].slice();
-    edges.forEach(edge => removeEdge(edge.v1, edge.v2, faction, deleteEmptyVertex));
+    edges.forEach(edge => this.removeEdge(edge, deleteEmptyVertex));
   }
 }
 
@@ -96,6 +96,11 @@ class Vertex {
   isConnectedTo(player) {
     return this.edgeEndpoints.find(e => e.player === player);
   }
+
+  shuffleEdges() {
+    shuffle(this.edges);
+    this.edgeEndpoints = this.edges.map(e => e.getOtherVertex(this));
+  }
 }
 
 class Edge {
@@ -107,6 +112,10 @@ class Edge {
     this.v1.edgeEndpoints.push(v2);
     this.v2.edges.push(this);
     this.v2.edgeEndpoints.push(v1);
+  }
+
+  getOtherVertex(vertex) {
+    return vertex === this.v1 ? this.v2 : this.v1;
   }
 }
 

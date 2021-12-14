@@ -1,4 +1,9 @@
-// data = 
+// data =
+
+/*
+TODO
+- More experienced players get larger lists to make conflict resolution easier, but they still only get up to 1-2 of those (i.e. they select up to 4, but they would still never get more than 2 assigned + 2 random)
+ */
 
 const {Graph} = require("./graph");
 const {removeFromArray, removeItemFromArray, log, clearLog, shuffle} = require("./utils");
@@ -91,6 +96,7 @@ function assignWithGraph(players, factionsToPlayers) {
   const graph = new Graph();
 
   const contestedFactions = [];
+  const assignedContestedFactions = [];
   const factionToPlayerAssignments = {};
 
   // assign unique picks and resolvable contested picks, and build the graph
@@ -101,8 +107,8 @@ function assignWithGraph(players, factionsToPlayers) {
       log(`${factionPlayers[0].name} is the only one to select ${faction}`);
       factionPlayers[0].assignedFactions.push(faction);
       removeItemFromArray(factionPlayers[0].selectedFactions, faction);
-      removeFromArray(factionPlayers, 0);
       factionToPlayerAssignments[faction] = factionPlayers[0];
+      removeFromArray(factionPlayers, 0);
     }
     else {
       log(`${faction} is contested by ${factionPlayers.length}`);
@@ -111,14 +117,16 @@ function assignWithGraph(players, factionsToPlayers) {
       const resolutionPlayer = resolveConflictsPrioritizeLowerExp(faction, factionPlayers)
       if (resolutionPlayer) {
         factionToPlayerAssignments[faction] = resolutionPlayer;
+        assignedContestedFactions.push(faction);
       }
-
-      contestedFactions.push(faction);
-      for (let i1 = 0; i1 < factionPlayers.length - 1; i1++) {
-        const p1 = factionPlayers[i1];
-        for (let i2 = i1 + 1; i2 < factionPlayers.length; i2++) {
-          const p2 = factionPlayers[i2];
-          graph.addEdge(p1, p2, faction);
+      else {
+        contestedFactions.push(faction);
+        for (let i1 = 0; i1 < factionPlayers.length - 1; i1++) {
+          const p1 = factionPlayers[i1];
+          for (let i2 = i1 + 1; i2 < factionPlayers.length; i2++) {
+            const p2 = factionPlayers[i2];
+            graph.addEdge(p1, p2, faction);
+          }
         }
       }
     }
@@ -141,14 +149,35 @@ function assignWithGraph(players, factionsToPlayers) {
         removeItemFromArray(factionToPlayerAssignments[faction].assignedFactions, faction);
       }
       factionToPlayerAssignments[faction] = factionPlayers[0];
-      // removeFromArray(factionPlayers, 0);
-      // removeFromArray(contestedFactions, index--);
-      // graph.removeAllEdges(faction, true);
+      removeFromArray(factionPlayers, 0);
+      removeFromArray(contestedFactions, index--);
+      graph.removeAllEdges(faction, true);
     }
     else {
       log(`Could not find a player to assign ${faction} to`);
     }
   }
+
+  // now go through factions that got assigned but where the player assigned has 2 and the other has 0
+  assignedContestedFactions.forEach((faction) => {
+    const assignedPlayer = factionToPlayerAssignments[faction];
+    const factionPlayers = factionsToPlayers[faction];
+    removeItemFromArray(factionPlayers, assignedPlayer);
+    factionPlayers.sort((p1, p2) => (p1.assignedFactions.length - p2.assignedFactions.length) || (p1.exp - p2.exp));
+    if (assignedPlayer.assignedFactions.length === 2) {
+      log(`${factionPlayers[0].name} has 2 factions assigned, including a contested one: ${faction}`)
+        const nextPlayer = factionPlayers[0]
+      if (nextPlayer.assignedFactions.length === 0 && (factionPlayers.length === 1 || factionPlayers[1].assignedFactions.length > 0 || factionPlayers[1].exp > nextPlayer.exp)) {
+          log(`${nextPlayer.name} has no factions assigned, and there is not another contested selection, or the other contesting players have a higher exp and / or more factions already assigned, so they get ${faction}`);
+          removeItemFromArray(assignedPlayer.assignedFactions, faction);
+          nextPlayer.assignedFactions.push(faction);
+          factionToPlayerAssignments[faction] = nextPlayer;
+      }
+      else {
+          log(`${nextPlayer.name} has no factions assigned, but there is another contesting player with 0 factions and the same exp, so they cannot get ${faction}.`);
+      }
+    }
+  });
 
   // reduce the graph to only those with the minimum number of assigned picks
   const minCount = graph.vertices.reduce((min, vertex) => Math.min(min, vertex.player.assignedFactions.length), 0);
@@ -158,16 +187,46 @@ function assignWithGraph(players, factionsToPlayers) {
     }
   });
 
+  if (graph.vertices.length === 0) {
+    return;
+  }
+
   const draftAssignments = [];
+
+  // make it non-deterministic based on the input data
+  shuffle(graph.vertices);
+  graph.vertices.forEach(v => v.shuffleEdges());
 
   // try to assign to every player, prioritizing those with fewer factions, and then lower exp
   // but assignments must match within an exp tier (i.e. all tier X players must either get or not get an assignment)
-  graph.vertices.sort((v1, v2) => (v1.edges.length - v2.edges.length) || v1.player.exp - v2.player.exp);
-  graph.vertices.slice().forEach(vertex => {
+  graph.vertices.sort((v1, v2) => (v1.edges.length - v2.edges.length) || (v1.player.exp - v2.player.exp));
+
+  // if (graph.vertices[0].edges.length === graph.vertices[graph.vertices.length - 1].edges.length && graph.vertices[0].player.exp === graph.vertices[graph.vertices.length - 1].player.exp) {
+  //   // easy case - all players are the same level and have the same nubmer of edges, so pick one randomly and resolve
+  //   shuffle(graph.vertices);
+  //   graph.vertices.slice().forEach(vertex => {
+  //     const faction = vertex.edges[0].faction;
+  //     const p1 = vertex.player;
+  //     const p2 = vertex.edgeEndpoints[0].player;
+  //   });
+  // }
+
+  let vertex = graph.vertices[0];
+  while (vertex.edges.length > 0) {
     const faction = vertex.edges[0].faction;
     const p1 = vertex.player;
     const p2 = vertex.edgeEndpoints[0].player;
-  });
+
+    const factionPlayers = factionsToPlayers[faction];
+
+    // assign this faction to p1, update the graph, and move on to p2
+    p1.assignedFactions.push(faction);
+    factionPlayers.forEach(p => removeItemFromArray(p.selectedFactions, faction, false));
+    factionToPlayerAssignments[faction] = p1;
+    const nextVertex = vertex.edgeEndpoints[0];
+    graph.removeEdge(vertex.edges[0], true);
+    vertex = nextVertex;
+  }
 }
 
 function assignWithEqualPicks(players, factionsToPlayers) {
